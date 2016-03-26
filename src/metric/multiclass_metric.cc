@@ -4,7 +4,7 @@
  * \brief evaluation metrics for multiclass classification.
  * \author Kailong Chen, Tianqi Chen
  */
-#include <xgboost/metric.h>
+#include "xgboost/metric.h"
 #include <cmath>
 #include "../common/sync.h"
 #include "../common/math.h"
@@ -101,9 +101,9 @@ struct EvalMultiLogLoss : public EvalMClassBase<EvalMultiLogLoss> {
     const float eps = 1e-16f;
     size_t k = static_cast<size_t>(label);
     if (pred[k] > eps) {
-      return -std::log(pred[k]);
+      return -dmlc::log(pred[k]);
     } else {
-      return -std::log(eps);
+      return -dmlc::log(eps);
     }
   }
 };

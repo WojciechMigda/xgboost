@@ -4,8 +4,8 @@
  * \brief prediction rank based metrics.
  * \author Kailong Chen, Tianqi Chen
  */
-#include <xgboost/metric.h>
-#include <dmlc/registry.h>
+#include "xgboost/metric.h"
+#include "dmlc/registry.h"
 #include <cmath>
 #include "../common/sync.h"
 #include "../common/math.h"
@@ -251,7 +251,7 @@ struct EvalNDCG : public EvalRankList{
     for (size_t i = 0; i < rec.size() && i < this->topn_; ++i) {
       const unsigned rel = rec[i].second;
       if (rel != 0) {
-        sumdcg += ((1 << rel) - 1) / std::log(i + 2.0);
+        sumdcg += ((1 << rel) - 1) / dmlc::log(i + 2.0);
       }
     }
     return static_cast<float>(sumdcg);
