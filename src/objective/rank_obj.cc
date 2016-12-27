@@ -162,7 +162,7 @@ class LambdaRankObj : public ObjFunction {
   virtual void GetLambdaWeight(const std::vector<ListEntry> &sorted_list,
                                std::vector<LambdaPair> *io_pairs) = 0;
 
- private:
+ protected:
   LambdaRankParam param_;
 };
 
@@ -170,6 +170,113 @@ class PairwiseRankObj: public LambdaRankObj{
  protected:
   void GetLambdaWeight(const std::vector<ListEntry> &sorted_list,
                        std::vector<LambdaPair> *io_pairs) override {}
+};
+
+class MmrfRankObj: public PairwiseRankObj{
+public:
+    void GetGradient(const std::vector<float>& preds,
+                     const MetaInfo& info,
+                     int iter,
+                     std::vector<bst_gpair>* out_gpair) override {
+      using size_type = std::size_t;
+      CHECK_EQ(preds.size(), info.labels.size()) << "label size predict size not match";
+      std::vector<bst_gpair>& gpair = *out_gpair;
+
+      const std::size_t NELEM = preds.size();
+
+      gpair.resize(preds.size());
+      std::fill_n(gpair.begin(), NELEM, bst_gpair(0.0f, 0.0f));
+
+      std::vector<ListEntry> lst(NELEM, ListEntry(0.f, 0.f, 0u));
+      for (size_type ix = 0; ix < NELEM; ++ix)
+      {
+          lst[ix] = ListEntry(preds[ix], info.labels[ix], ix);
+      }
+      std::stable_sort(lst.begin(), lst.end(), ListEntry::CmpPred);
+
+      std::vector<LambdaPair> pairs;
+
+      size_type nprog = 0;
+
+      for (size_type posix = 0; posix < NELEM; ++posix)
+      {
+          const auto & pos = lst[posix];
+          const int plabel = std::lround(pos.label);
+
+          if (plabel % 2)
+          {
+              // element w/out progression time, skipping
+              continue;
+          }
+          const int tpos = -plabel / 2;
+          ++nprog;
+
+          for (size_type negix = 0; negix < NELEM; ++negix)
+          {
+              if (negix == posix)
+              {
+                  continue;
+              }
+
+              const auto & neg = lst[negix];
+              const int nlabel = std::lround(neg.label);
+
+              const int tneg = (nlabel % 2) ? -1 : -nlabel / 2;
+              const int uneg = (nlabel % 2) ? -nlabel / 2 : -1;
+
+              if (tneg != -1)
+              {
+                  // both elements progress, order by tpos v. tneg
+                  if (tpos < tneg)
+                  {
+                      pairs.emplace_back(posix, negix);
+                  }
+                  else
+                  {
+                      pairs.emplace_back(negix, posix);
+                  }
+              }
+              else
+              {
+                  if (tpos < uneg)
+                  {
+                      pairs.emplace_back(posix, negix);
+                  }
+                  else if (posix < negix)
+                  {
+                      pairs.emplace_back(posix, negix);
+                  }
+                  else
+                  {
+                      pairs.emplace_back(negix, posix);
+                  }
+              }
+          }
+      }
+      // get lambda weight for the pairs
+      this->GetLambdaWeight(lst, &pairs);
+      // rescale each gradient and hessian so that the lst have constant weighted
+      float scale = 1.0f * nprog / (NELEM - 1);
+      if (param_.fix_list_weight != 0.0f)
+      {
+          scale *= param_.fix_list_weight / NELEM;
+      }
+      for (size_type i = 0; i < pairs.size(); ++i)
+      {
+          const ListEntry &pos = lst[pairs[i].pos_index];
+          const ListEntry &neg = lst[pairs[i].neg_index];
+          const float w = pairs[i].weight * scale;
+          const float eps = 1e-16f;
+          const float p = common::Sigmoid(pos.pred - neg.pred);
+          const float g = p - 1.0f;
+          const float h = std::max(p * (1.0f - p), eps);
+          // accumulate gradient and hessian in both pid, and nid
+          gpair[pos.rindex].grad += g * w;
+          gpair[pos.rindex].hess += 2.0f * w * h;
+          gpair[neg.rindex].grad -= g * w;
+          gpair[neg.rindex].hess += 2.0f * w * h;
+      }
+    }
 };
 
 // beta version: NDCG lambda rank
@@ -315,6 +422,10 @@ DMLC_REGISTER_PARAMETER(LambdaRankParam);
 XGBOOST_REGISTER_OBJECTIVE(PairwieRankObj, "rank:pairwise")
 .describe("Pairwise rank objective.")
 .set_body([]() { return new PairwiseRankObj(); });
+
+XGBOOST_REGISTER_OBJECTIVE(MmrfRankObj_, "rank:mmrf")
+.describe("MMRF rank objective.")
+.set_body([]() { return new MmrfRankObj(); });
 
 XGBOOST_REGISTER_OBJECTIVE(LambdaRankNDCG, "rank:ndcg")
 .describe("LambdaRank with NDCG as objective.")
