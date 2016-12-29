@@ -231,10 +231,6 @@ public:
                   {
                       pairs.emplace_back(posix, negix);
                   }
-                  else
-                  {
-                      pairs.emplace_back(negix, posix);
-                  }
               }
               else
               {
@@ -256,7 +252,7 @@ public:
       // get lambda weight for the pairs
       this->GetLambdaWeight(lst, &pairs);
       // rescale each gradient and hessian so that the lst have constant weighted
-      float scale = 1.0f * nprog / (NELEM - 1);
+      float scale = (float)NELEM / ((2 * (NELEM - 1) - (nprog - 1)) * nprog / 2);
       if (param_.fix_list_weight != 0.0f)
       {
           scale *= param_.fix_list_weight / NELEM;
